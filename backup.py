@@ -3,22 +3,22 @@ import boto3
 from botocore.exceptions import ClientError
 import os
 from glob import glob
-from tinydb import TinyDB
 import hashlib
-from tinydb import Query
 import tinydb
-import os.path
+from tinydb import TinyDB
+from tinydb import Query
 from tinydb import where
+import os.path
 from cryptography.fernet import Fernet
 import uuid
 import sys
 
-entities = ["", "", ""]
-bucketname = "backup.51.75.69.218"
-db_path = 's3backup.hashes.json'
+entities = ['', '', '']
+bucketname = ''
+db_path = ''
 
 crypto = False
-crypto_key_file = '/root/s3backup.key'
+crypto_key_file = '/root/s3bucket.key'
 
 aws_access_key_id = None
 aws_secret_access_key = None
@@ -46,9 +46,27 @@ else:
 def keymanagement():
     if crypto is False: return
     global crypto_key
-    if not os.path.isfile(crypto_key_file): 
+    if not os.path.isfile(crypto_key_file):
+        all_bucket_objects = s3_client.list_objects(Bucket=bucketname)['Contents']
+        if len(all_bucket_objects) > 0:
+            print("WARNING: YOU CHOSE TO CRYPT FILES BUT YOU DO NOT HAVE A VALID KEYFILE UNDER THE GIVEN PATH");
+            print("The path is %s" % crypto_key_file)
+            print("Do you want to create a new key file?")
+            print("THIS MEANS ALL FUTURE UPDATES WILL BE ENCRYPTED USING THIS KEY FILE.")
+            print("If you already have an encrypted backup you will not be able to decrypt your backup as if is unclear which key was used to backup the files")
+            print("Are you SURE you want to continue creating a new key file?")
+            print("This means we will reset your backup state and backup ALL your files again")
+            print("- There are %s Objects in your Backup Bucket. You will loose them -" % len(all_bucket_objects))
+            userinput = input("Type YES to continue\r\n")
+            if userinput.lower() != "yes":
+                print("Aborting")
+                sys.exit(0)
+                return
         key = Fernet.generate_key()
         with open(crypto_key_file, "wb") as kf: kf.write(key)
+        print("Created a new keyfile for you")
+        db.truncate()
+
     crypto_key = open(crypto_key_file, "rb").read()
 
 def upload_file(file_name, bucket_path = None):
@@ -93,7 +111,6 @@ def mysql_dump():
     else:
         os.system('mysqldump -u root --all-databases > %s' % (mysql_tmp_dump_file))
 
-    print(mysql_tmp_dump_file)
     if not os.path.isfile(mysql_tmp_dump_file): raise Exception('Could not dump database')
 
     upload_file(mysql_tmp_dump_file, s3_mysql_dump_path)
@@ -106,7 +123,7 @@ def delete_old_versions():
         file=key['Key']
         for entity in entities:
             if file.startswith(entity) and not os.path.isfile(file):
-                print("Delete '" + file + "' from bucket")
+                print("Delete '%s' from bucket" % file)
                 s3_client.delete_object(Bucket=bucketname, Key=file)
                 db.remove(where('file') == file)
     print("Done")
